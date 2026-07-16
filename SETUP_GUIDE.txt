@@ -1,0 +1,506 @@
+================================================================
+  YouTube Automation Agent — GitHub Actions Cloud Setup Guide
+================================================================
+
+This guide walks you through setting up the YouTube Automation
+Agent to run on GitHub Actions so you don't need to keep your
+local machine running 24/7.
+
+TABLE OF CONTENTS
+─────────────────
+  1. Prerequisites
+  2. Step 1 — Clone & install locally
+  3. Step 2 — Create YouTube API credentials (THE TRICKY PART)
+  4. Step 3 — Create your .env file
+  5. Step 4 — Run the local setup wizard
+  6. Step 5 — Verify local setup works
+  7. Step 6 — Push to GitHub
+  8. Step 7 — Configure GitHub Secrets
+  9. Step 8 — Enable the workflow
+  10. Step 9 — Verify cloud deployment
+  11. Maintenance & troubleshooting
+
+
+════════════════════════════════════════════════════════════════
+  1. PREREQUISITES
+════════════════════════════════════════════════════════════════
+
+Before starting, make sure you have:
+
+  □ A GitHub account (free tier is fine)
+  □ Node.js 18+ installed on your computer
+  □ A Google account (for YouTube API access)
+  □ At least one AI provider API key:
+      - OpenAI (https://platform.openai.com)  OR
+      - OpenRouter (https://openrouter.ai)    OR
+      - Google Gemini (https://aistudio.google.com)
+      - (Kimi, MiMo, and GLM also supported)
+
+Check Node.js:
+  node --version        # Should show v18.x or higher
+
+
+════════════════════════════════════════════════════════════════
+  2. STEP 1 — CLONE & INSTALL LOCALLY
+════════════════════════════════════════════════════════════════
+
+  git clone https://github.com/YOUR_USERNAME/youtube-automation-agent.git
+  cd youtube-automation-agent
+  npm install
+
+This installs all dependencies: Express, SQLite, Google APIs,
+OpenAI SDK, Playwright, Sharp, and everything else the agents
+need.
+
+
+════════════════════════════════════════════════════════════════
+  3. STEP 2 — CREATE YOUTUBE API CREDENTIALS (THE TRICKY PART)
+════════════════════════════════════════════════════════════════
+
+This is the most important step. You need OAuth 2.0 credentials
+so the agent can upload videos to your YouTube channel.
+
+─── 3a. Go to Google Cloud Console ───────────────────────────
+
+  https://console.cloud.google.com/
+
+─── 3b. Create a new project (or select existing) ────────────
+
+  - Click the project dropdown at the top of the page
+  - Click "New Project"
+  - Name it something like "YouTube Automation"
+  - Click "Create"
+
+─── 3c. Enable the YouTube Data API ──────────────────────────
+
+  - Go to "APIs & Services" → "Library" (left sidebar)
+  - Search for "YouTube Data API v3"
+  - Click on it
+  - Click "Enable"
+
+─── 3d. Create OAuth consent screen ──────────────────────────
+
+  - Go to "APIs & Services" → "OAuth consent screen"
+  - Choose "External" user type (even if you're the only user)
+  - Fill in:
+      App name:  "YouTube Automation Agent"
+      User support email:  your email
+      Developer contact info:  your email
+  - Click "Save and Continue"
+  - On "Scopes" page, click "Add or Remove Scopes"
+  - Search for and add these scopes:
+      ../auth/youtube.upload
+      ../auth/youtube.readonly
+      ../auth/youtubepartner
+      ../auth/yt-analytics.readonly
+  - Click "Save and Continue"
+  - On "Test Users" page, add your own email address
+  - Click "Save and Continue"
+
+  NOTE: The app will be in "Testing" mode. This is fine for
+  personal use. You may see a warning "unverified app" when
+  you first authorize it — that's normal. Just click through.
+
+─── 3e. Create OAuth 2.0 Client ID ───────────────────────────
+
+  - Go to "APIs & Services" → "Credentials"
+  - Click "+ Create Credentials" → "OAuth client ID"
+  - Application type:  "Desktop app"
+  - Name:  "YouTube Automation Desktop"
+  - Click "Create"
+  - A popup appears with your Client ID and Client Secret
+  - Click "Download JSON" — this downloads a file named
+    something like "client_secret_XXXXX-XXXXX.apps.googleusercontent.com.json"
+
+─── 3f. Save the credentials file ────────────────────────────
+
+  Rename and move the downloaded file:
+
+        Your Downloads folder/
+          └── client_secret_XXXXX.json
+
+                   ↓  rename and move
+
+        youtube-automation-agent/
+          └── config/
+              └── credentials.json
+
+  This is the file the agent will use to authenticate with
+  YouTube. DO NOT commit this file to GitHub (it's already in
+  .gitignore). For cloud deployment, you'll encode it as a
+  base64 string (explained in Step 7).
+
+
+════════════════════════════════════════════════════════════════
+  4. STEP 3 — CREATE YOUR .env FILE
+════════════════════════════════════════════════════════════════
+
+  cp .env.example .env
+
+Open .env in a text editor and fill in the values.
+
+─── Required (need at least one AI provider) ──────────────────
+
+  If using OpenAI:
+    OPENAI_API_KEY=sk-proj-xxxxxxxxxxxx
+
+  If using OpenRouter (gives you access to 300+ models):
+    OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxx
+
+  If using Google Gemini:
+    GEMINI_API_KEY=AIzaxxxxxxxxxxxx
+
+  You can set multiple providers — the agent auto-detects
+  which one is available.
+
+─── Recommended ───────────────────────────────────────────────
+
+  CHANNEL_NAME=Your Channel Name
+  TARGET_AUDIENCE=Your target audience description
+  YOUTUBE_REGION=US
+  DEFAULT_PRIVACY_STATUS=private
+
+  (Keep it "private" while testing. Change to "public" only
+  when you're confident everything works.)
+
+─── Optional (premium features) ───────────────────────────────
+
+  ELEVENLABS_API_KEY=...    # High-quality TTS voiceovers
+  ELEVENLABS_VOICE_ID=...   # Your ElevenLabs voice ID
+  REPLICATE_API_KEY=...     # AI video generation (Wan 2.7)
+
+
+════════════════════════════════════════════════════════════════
+  5. STEP 4 — RUN THE LOCAL SETUP WIZARD
+════════════════════════════════════════════════════════════════
+
+  npm run setup
+
+This interactive wizard will:
+
+  a. Create required directories (data/, logs/, temp/, etc.)
+  b. Initialize the SQLite database
+  c. Prompt you for:
+       - YouTube OAuth → It will open a browser window asking
+         you to sign in to Google and grant permissions
+       - AI provider keys → Paste your API keys
+       - TTS settings → ElevenLabs or Azure (optional)
+  d. Create startup scripts (start.bat for Windows,
+     start.sh for Mac/Linux)
+
+─── Important about YouTube OAuth during setup ────────────────
+
+  When the wizard reaches YouTube authentication, it will:
+    1. Open your browser
+    2. Show a Google consent screen
+    3. You click "Continue" and sign in to the Google account
+       that OWNS your YouTube channel
+    4. You may see "Google hasn't verified this app" — click
+       "Continue" anyway (it's your own app)
+    5. Grant the requested permissions
+    6. You'll be redirected to a page that says "Authentication
+       successful! You can close this window."
+
+  After this, a file called config/credentials.json will be
+  updated with your OAuth tokens (access token + refresh token).
+
+─── Verify the wizard completed ───────────────────────────────
+
+  Check that these files exist:
+    config/credentials.json    (has OAuth tokens now)
+    .env                       (has your API keys)
+    data/youtube_automation.db (SQLite database)
+
+  If any are missing, re-run:  npm run setup
+
+
+════════════════════════════════════════════════════════════════
+  6. STEP 5 — VERIFY LOCAL SETUP WORKS
+════════════════════════════════════════════════════════════════
+
+Start the agent locally to confirm everything works:
+
+  npm start
+
+You should see:
+  ✓ YouTube Automation Agent initialized successfully
+  ✓ Dashboard: http://localhost:3456
+  ✓ Automation is active. Content will be generated daily.
+
+Open http://localhost:3456 in your browser to see the dashboard.
+
+Test the health endpoint:
+  curl http://localhost:3456/health
+
+Run the test suite:
+  npm test
+
+If everything works, press Ctrl+C to stop the local server
+(you won't need it running once cloud mode is active).
+
+
+════════════════════════════════════════════════════════════════
+  7. STEP 6 — PUSH TO GITHUB
+════════════════════════════════════════════════════════════════
+
+Create a repository on GitHub (if you haven't already), then:
+
+  git remote add origin https://github.com/YOUR_USERNAME/youtube-automation-agent.git
+  git push -u origin master
+
+Make sure .env and config/credentials.json are NOT committed
+(they're in .gitignore — verify with "git status" before pushing).
+
+
+════════════════════════════════════════════════════════════════
+  8. STEP 7 — CONFIGURE GITHUB SECRETS
+════════════════════════════════════════════════════════════════
+
+GitHub Secrets are encrypted environment variables that the
+workflow can read. You need to create them one by one.
+
+─── 8a. Open Secrets page ─────────────────────────────────────
+
+  Go to your repo on GitHub.com
+  Click "Settings" tab
+  Click "Secrets and variables" in left sidebar
+  Click "Actions"
+  Click "New repository secret"
+
+─── 8b. Add each secret ──────────────────────────────────────
+
+  Repeat for each of the following. For each one:
+    - Type the Name exactly as shown
+    - Paste the Value
+    - Click "Add secret"
+
+  ┌─────────────────────────────────┬──────────────────────────┐
+  │ Secret Name                     │ How to get the Value     │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ YOUTUBE_CREDENTIALS_JSON        │ See section 8c below     │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ OPENAI_API_KEY                  │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ OPENROUTER_API_KEY              │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ GEMINI_API_KEY                  │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ MOONSHOT_API_KEY                │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ MIMO_API_KEY                    │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ GLM_API_KEY                     │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ ELEVENLABS_API_KEY              │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ ELEVENLABS_VOICE_ID             │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ REPLICATE_API_KEY               │ Copy from your .env file │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ CHANNEL_NAME                    │ Your YouTube channel name│
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ TARGET_AUDIENCE                 │ e.g. "tech enthusiasts"  │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ YOUTUBE_REGION                  │ e.g. "US"                │
+  ├─────────────────────────────────┼──────────────────────────┤
+  │ DEFAULT_PRIVACY_STATUS          │ "private" (recommended)  │
+  └─────────────────────────────────┴──────────────────────────┘
+
+─── 8c. How to encode YOUTUBE_CREDENTIALS_JSON ────────────────
+
+  This is the KEY secret — it contains your YouTube OAuth
+  tokens (including the refresh token that lets the cloud
+  runner authenticate without a browser).
+
+  YOUR config/credentials.json file should now contain OAuth
+  tokens (not just the client ID/secret from Google Cloud).
+  Verify by opening it — it should have fields like:
+    "access_token", "refresh_token", "scope", "token_type",
+    "expiry_date", "client_id", "client_secret"
+
+  If it only has "installed" or "web" with client_id and
+  client_secret, you need to run "npm run setup" again to
+  complete the OAuth flow.
+
+  Once you have the full credentials.json with tokens:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  WINDOWS (PowerShell):                                  │
+  │                                                         │
+  │    [Convert]::ToBase64String(                           │
+  │      [IO.File]::ReadAllBytes(                           │
+  │        "config\credentials.json"                        │
+  │      )                                                  │
+  │    )                                                    │
+  │                                                         │
+  │  Copy the entire output (one long string).              │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  macOS / Linux:                                         │
+  │                                                         │
+  │    base64 -w0 config/credentials.json                   │
+  │                                                         │
+  │  Copy the entire output (one long string).              │
+  └─────────────────────────────────────────────────────────┘
+
+  Then create a GitHub Secret named YOUTUBE_CREDENTIALS_JSON
+  and paste this long base64 string as the value.
+
+  IMPORTANT: The credentials.json file contains your YouTube
+  refresh token. If it ever expires or is revoked, you'll need
+  to run "npm run setup" locally again to re-authorize, then
+  re-encode and update this secret.
+
+
+════════════════════════════════════════════════════════════════
+  9. STEP 8 — ENABLE THE WORKFLOW
+════════════════════════════════════════════════════════════════
+
+  1. Go to your repository on GitHub.com
+  2. Click the "Actions" tab (top navigation)
+  3. In the left sidebar, click "YouTube Automation Cloud"
+  4. You'll see a yellow banner: "This workflow has a warning"
+     — this is normal for first-time setup
+  5. Click "Enable workflow"
+
+  The workflow is now active. It will run:
+    - Every hour at 5 minutes past the hour (scheduled)
+    - Whenever you manually trigger it (workflow_dispatch)
+
+─── First run ─────────────────────────────────────────────────
+
+  After enabling, go ahead and trigger a manual run:
+    1. Click "Run workflow" dropdown (right side)
+    2. Select branch: "master"
+    3. Click "Run workflow"
+
+  This triggers an immediate run. Click on the running workflow
+  to watch the logs in real time. You'll see each step:
+    - Checkout repository
+    - Setup Node.js
+    - Install system dependencies (FFmpeg)
+    - Install npm dependencies
+    - Install Playwright browsers
+    - Decode YouTube credentials
+    - Restore database from cache
+    - Run cloud automation  ← THE MAIN STEP
+    - Save database to cache
+    - Commit database to repository
+
+  If everything is configured correctly, all steps should
+  complete with green checkmarks. The "Run cloud automation"
+  step will log something like:
+    "No tasks due at this time"
+  or
+    "Running X due task(s)" — if any tasks are past their
+    scheduled time.
+
+
+════════════════════════════════════════════════════════════════
+  10. STEP 9 — VERIFY CLOUD DEPLOYMENT
+════════════════════════════════════════════════════════════════
+
+─── Check workflow logs ──────────────────────────────────────
+
+  After a successful run, expand the "Run cloud automation"
+  step and look for:
+    - "Cloud Runner started"
+    - "Credential validation" — should pass
+    - "No tasks due" or "Running X task(s)"
+    - "Cloud Runner completed"
+
+  If you see "Credential validation failed", one of your
+  GitHub Secrets is missing or incorrect. Double-check each
+  one.
+
+─── Check that schedule is active ─────────────────────────────
+
+  Go to Actions tab → "YouTube Automation Cloud" workflow.
+  You should see "Scheduled" in the events column for future
+  runs. Hover over the schedule icon to see the next run time.
+
+─── Wait for a scheduled run ─────────────────────────────────
+
+  The workflow triggers at :05 past every hour. Wait for the
+  next scheduled trigger and verify it runs without errors.
+
+─── Optional: Let it run for 24 hours ────────────────────────
+
+  After 24 hours, check:
+    - Was content generated at 6 AM?
+    - Was analytics collected at 9 AM?
+    - Did any publish queue processing happen?
+  Review the workflow run logs for each time period.
+
+
+════════════════════════════════════════════════════════════════
+  11. MAINTENANCE & TROUBLESHOOTING
+════════════════════════════════════════════════════════════════
+
+─── YouTube token expires ────────────────────────────────────
+
+  If the workflow starts failing with "OAuth token expired":
+    1. Run locally:  npm run setup
+    2. Re-authorize YouTube in the browser
+    3. Re-encode the new credentials.json to base64
+    4. Update the YOUTUBE_CREDENTIALS_JSON secret in GitHub
+
+─── API key runs out of credits ───────────────────────────────
+
+  Check your AI provider dashboard. Top up or switch to a
+  different provider by updating the corresponding secret.
+
+─── Workflow run fails ───────────────────────────────────────
+
+  Click on the failed run in GitHub Actions to see which step
+  failed. Common issues:
+    - Missing secret (name typo)
+    - Invalid credentials.json format
+    - YouTube API quota exceeded
+  Check the logs/ directory in the workflow (there's a
+  "Run cloud automation" step log).
+
+─── Database corruption ──────────────────────────────────────
+
+  In rare cases, the SQLite database might get corrupted if a
+  workflow run is killed mid-write. To reset:
+    1. Delete the file:  data/youtube_automation.db
+    2. Push the deletion to git
+    3. Next workflow run will create a fresh database
+
+─── Changing AI provider ─────────────────────────────────────
+
+  You can have multiple AI provider secrets set at the same
+  time. The agent auto-detects which one to use. To switch:
+    1. Add/update the secret for the new provider
+    2. The next workflow run will use it automatically
+    3. No need to delete old secrets, but you can if you want
+
+─── Disabling cloud mode ─────────────────────────────────────
+
+  To stop the cloud automation:
+    - Go to Actions tab → "YouTube Automation Cloud"
+    - Click the three dots (⋯) → "Disable workflow"
+  Your local setup is completely unaffected.
+
+─── Running locally while cloud is active ─────────────────────
+
+  You CAN run both, but be careful:
+    - The SQLite database will diverge (local vs cloud)
+    - Content might be generated twice
+    - Publishing might queue items twice
+  Recommendation: Use ONE at a time. Disable the workflow
+  when running locally, or stop your local server when the
+  workflow is enabled.
+
+
+════════════════════════════════════════════════════════════════
+  DONE
+════════════════════════════════════════════════════════════════
+
+Your YouTube Automation Agent is now running in the cloud.
+It will generate content, publish videos, collect analytics,
+and optimize performance — all without your local machine.
+
+For more details, read the README.md file.

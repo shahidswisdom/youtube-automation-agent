@@ -1,0 +1,93 @@
+name: YouTube Automation Cloud
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/automation.yml'
+      - 'scripts/cloud-runner.js'
+
+concurrency:
+  group: youtube-automation-cloud
+  cancel-in-progress: false
+
+env:
+  CLOUD_MODE: 'true'
+  NODE_ENV: production
+
+jobs:
+  automate:
+    runs-on: ubuntu-latest
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+      MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+      GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+      REPLICATE_API_KEY: ${{ secrets.REPLICATE_API_KEY }}
+      CHANNEL_NAME: ${{ secrets.CHANNEL_NAME }}
+      TARGET_AUDIENCE: ${{ secrets.TARGET_AUDIENCE }}
+      YOUTUBE_REGION: ${{ secrets.YOUTUBE_REGION }}
+      DEFAULT_PRIVACY_STATUS: ${{ secrets.DEFAULT_PRIVACY_STATUS }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Decode YouTube credentials
+        run: |
+          mkdir -p config
+          echo '${{ secrets.YOUTUBE_CREDENTIALS_JSON }}' | base64 -d > config/credentials.json
+
+      - name: Restore database from cache
+        uses: actions/cache@v4
+        id: db-cache
+        with:
+          path: data/youtube_automation.db
+          key: youtube-automation-db-${{ github.run_id }}
+          restore-keys: |
+            youtube-automation-db-
+
+      - name: Run cloud automation
+        run: node scripts/cloud-runner.js
+
+      - name: Save database to cache
+        uses: actions/cache@v4
+        with:
+          path: data/youtube_automation.db
+          key: youtube-automation-db-${{ github.run_id }}
+
+      - name: Commit database to repository
+        run: |
+          if [ -f .db-commit-needed ]; then
+            git config user.name "youtube-automation-bot"
+            git config user.email "bot@youtube-automation.local"
+            git add -f data/youtube_automation.db
+            git commit -m "chore: update automation database [skip ci]"
+            git push
+            rm -f .db-commit-needed
+            echo "Database committed to repository"
+          else
+            echo "No database commit needed"
+          fi
