@@ -47,7 +47,7 @@ jobs:
           cache: 'npm'
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg
 
       - name: Install npm dependencies
         run: npm ci
