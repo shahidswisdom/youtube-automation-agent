@@ -4,9 +4,9 @@ const { Logger } = require('./logger');
 const PROVIDERS = {
   openai: {
     name: 'OpenAI',
-    baseURL: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-5.5',
-    models: ['gpt-5.5', 'gpt-5.5-instant', 'gpt-5.4'],
+    baseURL: 'https://api.groq.com/openai/v1',
+    defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    models: ['meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'],
     envKey: 'OPENAI_API_KEY',
   },
   openrouter: {
